@@ -3,11 +3,13 @@ cd /home/wagner/Downloads/pcc175/fonte
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install --upgrade pip
-python -m pip install matplotlib numpy pandas fpdf2
+python -m pip install matplotlib numpy pandas python3-tk
+
 
 cd /home/wagner/Downloads/pcc175/fonte && source .venv/bin/activate && code .
 
-python -m pip install fpdf2
+sudo apt update && sudo apt install -y python3-tk
+/home/wagner/Downloads/pcc175/fonte/.venv/bin/python -c "import tkinter; print('Tkinter instalado com sucesso!')"
 
 """
 
@@ -18,239 +20,245 @@ import matplotlib
 import matplotlib.pyplot as plt
 import matplotlib.lines as mlines
 import os
-from fpdf import FPDF
-
-# Configuração do nome do arquivo de saída solicitado na apostila
-NOME_SOBRENOME_PDF = "WagnerPinto-P1.pdf" 
 
 def gera_imagem(fig, filename_prefix):
+    # Criar uma pasta para as imagens no Drive, se não existir
     output_dir = './imagens'
     os.makedirs(output_dir, exist_ok=True)
 
+    # Salva a figura
     filepath = os.path.join(output_dir, f'{filename_prefix}.png')
     fig.savefig(filepath)
-    plt.close(fig) # Liberar memória do sistema
+    plt.close(fig) # Fechar a figura para liberar memória
     print(f"Imagem salva em: {filepath}")
-    return filepath
 
-def no_dominated(pontos):
+"""Data da entrega : 16/09
+
+Complete o código (marcado com None) e quando requisitado, escreva textos diretamente 
+nos notebooks. 
+Onde tiver None, substitua pelo seu código. 
+Execute todo notebook e salve tudo em um PDF nomeado como "NomeSobrenome-P1.pdf".
+"""
+
+def no_dominated(pontos, cap=0):
    """"
-   Determina os pontos não dominados de Pareto para a Mochila.
-   Objetivo: MAXIMIZAR Lucro (coluna 0) e MINIMIZAR Peso (coluna 1)
+   Determina os pontos não dominados de Pareto
+
+   Input:
+   pontos = conjunto de pontos [f1 f2]
+
+   Output:
+   nd_pontos = pontos não dominados [f1* f2*]
+
    """
-   N = pontos.shape[0] # quantidade de pontos
+   N = pontos.shape[0] # quantidade  de pontos
    nd_pontos = []
+   solucao = []
+   temp = []
+   peso_acum = 0
 
+   #cria um matriz_gabarito com todas as combinações possíveis de itens (0 ou 1)
+   total_itens = pow(2, N)
+   matriz_gabarito = np.array([[[int(bit)] for bit in f"{i:0{N}b}"] for i in range(total_itens)])
+
+   #print(matriz_gabarito)
+   item_validado = 0
+   peso_acum = 0
+
+   # faz a validação dos pesos de acordo com a capacidade
+   while total_itens != item_validado:
+      temp = []
+      peso_acum = 0
+      for k in range(N):         
+         if matriz_gabarito[item_validado][k] == 1:
+            #if pontos[k][1] <= cap:
+            #   if peso_acum + pontos[k][1] <= cap:
+                  peso_acum += pontos[k][1]
+                  temp.append(pontos[k])
+
+      #if peso_acum > 0 and peso_acum <= cap:
+      solucao.append(temp)
+
+      item_validado += 1
+
+   # retirar itens repetidos indevidamente
+   vistos = set()
+   solucao_unica = []
+   for combinacao in solucao:
+      chave = tuple(tuple(np.asarray(item).tolist()) for item in combinacao)
+      if chave not in vistos:
+         vistos.add(chave)
+         solucao_unica.append(combinacao)
+
+   solucao = solucao_unica
+   #print(f"Solucao: {solucao}")
+
+   N = len(solucao)
+   solucao_acum = []
+
+   # agrupar meus valores e pesos acumulados por solução
+   for item in solucao:
+      N = len(item)
+      valor_i = 0
+      peso_i = 0   
+      for i in range(N):
+         valor_i += item[i][0]
+         peso_i += item[i][1]
+
+      solucao_acum.append(np.array([valor_i, peso_i]))
+
+   #print(f"Solucao acumulada: {solucao_acum}")
+
+   # identifica todas as soluções nd
+   N = len(solucao_acum)
+   dominado = [False] * N
    for i in range(N):
-      dominante = False
-      lucro_i = pontos[i][0]
-      peso_i = pontos[i][1]
-
       for j in range(N):
          if i != j:
-            lucro_j = pontos[j][0]
-            peso_j = pontos[j][1]
+            if (solucao_acum[j][0] >= solucao_acum[i][0] and solucao_acum[j][1] <= solucao_acum[i][1]
+               and (solucao_acum[j][0] > solucao_acum[i][0] or solucao_acum[j][1] < solucao_acum[i][1])):
+               dominado[i] = True
+               break
 
-            # CONCEITO EXATO DE PARETO PARA MOCHILA:
-            # j domina i se tiver lucro maior/igual E peso menor/igual...
-            if lucro_j >= lucro_i and peso_j <= peso_i:
-               # Deve ser estritamente melhor em pelo menos um dos critérios
-               if lucro_j > lucro_i or peso_j < peso_i:
-                  dominante = True
-                  break # i foi dominado por j, não é Pareto
+   # nd_pontos são os pontos agregados [valor, peso] de cada combinação não dominada
+   nd_pontos = [solucao_acum[i] for i in range(N) if not dominado[i]]
+   #print(f"ND Pontos: {nd_pontos}")
 
-      if not dominante:
-         # Evita duplicar coordenadas perfeitamente idênticas na lista final
-         if not any(np.array_equal(pontos[i], x) for x in nd_pontos):
-            nd_pontos.append(pontos[i])
+   return nd_pontos
 
-   return nd_pontos # Retorna apenas os reais pontos da Fronteira de Pareto
-
-
-def gera_grafico(pontos, nd_pontos, itens_otimos, filename_prefix=None, capacidade=0, lucro_total=0):
-   # Legendas explícitas e organizadas
+def gera_grafico(pontos, nd_pontos, filename_prefix=None, cap=0):
    blue_dot = mlines.Line2D([], [], color='blue', marker='o', linestyle='None',
-                           markersize=6, label='Itens Disponíveis')
-   green_star = mlines.Line2D([], [], color='green', marker='*', linestyle='None',
-                           markersize=10, label='Itens Escolhidos na Solução Ótima (x=1)')
+                           markersize=6, label='Itens da Instância')
    red_dot = mlines.Line2D([], [], color='red', marker='o', linestyle='None',
-                           markersize=8, markeredgecolor='black', label='Fronteira de Pareto de Itens')
+                           markersize=10, markeredgecolor='black', label='Soluções Não Dominadas (valor, peso)')
 
-   fig, ax = plt.subplots(figsize=(8, 5.5))
-   
-   # 1. Desenha a base: Todos os 20 itens da instância em Azul
-   ax.scatter(pontos[:, 0], pontos[:, 1], color='blue', s=50, alpha=0.8, label='Disponíveis', zorder=2)
+   fig = plt.figure(figsize=(8, 6))
+   plt.scatter(pontos[:, 0], pontos[:, 1], color='blue', alpha=0.7)
 
-   # 2. Desenha a Fronteira de Pareto em Vermelho (Pontos Reais Não Dominados)
+   # Converter o nd_pontos
    nd_pontos = np.array(nd_pontos)
-   if nd_pontos.size > 0:
-      if nd_pontos.ndim == 2:
-         ax.scatter(nd_pontos[:, 0], nd_pontos[:, 1], color='red', s=90, edgecolors='black', facecolors='none', linewidths=1.5, zorder=3)
-      elif nd_pontos.ndim == 1:
-         ax.scatter(nd_pontos[0], nd_pontos[1], color='red', s=90, edgecolors='black', facecolors='none', linewidths=1.5, zorder=3)
+   if nd_pontos.size > 0 and nd_pontos.ndim == 2:
+      plt.scatter(nd_pontos[:, 0], nd_pontos[:, 1], color='red', s=100, edgecolors='black', zorder=5)
+   elif nd_pontos.size > 0 and nd_pontos.ndim == 1:
+      # Caso retorne apenas 1 ponto isolado (1D)
+      plt.scatter(nd_pontos[0], nd_pontos[1], color='red', s=100, edgecolors='black', zorder=5)
 
-   # 3. Desenha as Estrelas Verdes POR CIMA de tudo para garantir a visibilidade do vetor x=1
-   if len(itens_otimos) > 0:
-      itens_otimos = np.array(itens_otimos)
-      ax.scatter(itens_otimos[:, 0], itens_otimos[:, 1], color='green', marker='*', s=150, edgecolors='darkgreen', linewidths=0.5, zorder=4)
-
-   # Metadados e Estética do Gráfico
-   plt.title(f'Instância Mochila: {filename_prefix}\nCapacidade (c): {capacidade} | Lucro Ótimo Esperado (z): {lucro_total}', fontsize=10)
-   plt.xlabel('Lucro do Item (p)')
-   plt.ylabel('Peso do Item (w)')
-   plt.grid(True, linestyle='--', alpha=0.5)
-   plt.legend(handles=[blue_dot, red_dot, green_star], loc='upper left', fontsize=9)
+   titulo = 'Itens da Mochila e Solução Não Dominada'
+   if cap:
+      titulo += f' (Capacidade = {cap})'
+   plt.title(titulo)
+   plt.xlabel('Valor')
+   plt.ylabel('Peso')
+   plt.grid(True)
+   plt.legend(handles=[blue_dot, red_dot])
 
    if filename_prefix is not None:
-      caminho_imagem = gera_imagem(fig, filename_prefix)
-      return caminho_imagem
+      gera_imagem(fig, filename_prefix)
    else:
+      #print("Apresenta a imagem!")
       matplotlib.use('TkAgg')
       plt.show()
-      return None
 
 
 def gera_arquivo_csv(nome_arquivo):
+
    pontos_lista = [] 
-   itens_otimos = []
-   dados_instancias = [] # Guardará caminhos de imagem e metadados para construir o PDF
-   tam = 0
+   n_itens = 0
    capacidade = 0
-   lucro_total = 0
-   nome_imagem = "instancia"
+   #count = 0
+   nome_imagem = None
    
    with open(nome_arquivo, 'r') as f:
       for i, line in enumerate(f):
          linha = line.strip()
+         #print(f"Linha {i+1}: {linha}")        
 
+         # Ignora linhas vazias ou linhas de separação
          if not linha or 'knapPI' in linha:
             nome_imagem = linha.replace('.csv', '').strip()
-            pontos_lista = []
-            itens_otimos = []
             continue
 
          if linha.startswith('-'):
             if len(pontos_lista) > 0:
-               #pontos_lista.append([10, 900]) 
                pontos = np.array(pontos_lista)
-               img_path = calcula_pontos(pontos, itens_otimos, nome_imagem, capacidade, lucro_total)
-               if img_path:
-                  dados_instancias.append({
-                      'nome': nome_imagem, 'c': capacidade, 'z': lucro_total, 'n': tam, 'img': img_path
-                  })
+               calcula_pontos(pontos, nome_imagem, capacidade)
                pontos_lista = []            
-               itens_otimos = []
+            n_itens = 0
+            capacidade = 0
             continue
 
          valores = linha.split(',')
+         #print(f"Valores na linha {i+1}: {valores}")
 
+         # Verificar a quantidade de elementos a serem processados.
          if len(valores) == 1:
-            partes = linha.split(' ')
-            if len(partes) >= 2:
-               chave = partes[0].lower()
-               valor = partes[1]
-               if chave == 'n':
-                  tam = int(valor)
-               elif chave == 'c':
-                  capacidade = int(valor)
-               elif chave == 'z':
-                  lucro_total = int(valor)
-            continue
+            valores = linha.split(' ')
+            if valores[0].lower() == 'n':
+               #print("Tamanho do conjunto de pontos (N) encontrado na linha:", valores[1])
+               n_itens = int(valores[1])
+               continue
+            if valores[0].lower() == 'c':
+               #print("Capacidade da mochila encontrada na linha:", valores[1])
+               capacidade = int(valores[1])
+               continue
 
+         # Só processa se a linha tiver os 4 elementos esperados (ID, valor1, valor2, flag)
          if len(valores) == 4:
+
             try:
-               num1 = int(valores[1]) # Lucro p[i]
-               num2 = int(valores[2]) # Peso w[i]
-               x_opt = int(valores[3]) # Selecionado x[i]
-               
-               if len(pontos_lista) < tam:
-                  pontos_lista.append([num1, num2])
-                  if x_opt == 1:
-                     itens_otimos.append([num1, num2])
-               
-               if len(pontos_lista) == tam:    
-                  #pontos_lista.append([10, 900])            
-                  pontos = np.array(pontos_lista)
-                  img_path = calcula_pontos(pontos, itens_otimos, nome_imagem, capacidade, lucro_total)
-                  if img_path:
-                     dados_instancias.append({
-                         'nome': nome_imagem, 'c': capacidade, 'z': lucro_total, 'n': tam, 'img': img_path
-                     })
-                  pontos_lista = []
-                  itens_otimos = []
-                  
+               num1 = int(valores[1])
             except ValueError:
                continue
-               
-   # Após varrer todo o arquivo CSV, cria o PDF consolidado
-   if dados_instancias:
-       exportar_para_pdf(dados_instancias)
 
-def calcula_pontos(pontos, itens_otimos, nome_imagem, cap, z):
-   nd_pontos = no_dominated(pontos)
-   print(f"Processado: {nome_imagem} | Pareto: {len(nd_pontos)} itens")
-   img_path = gera_grafico(pontos, nd_pontos, itens_otimos, nome_imagem, capacidade=cap, lucro_total=z)
-   return img_path
+            try:
+               num2 = int(valores[2])
+            except ValueError:
+               continue
 
-def exportar_para_pdf(dados_instancias):
-    print(f"\nIniciando compilação do relatório PDF: {NOME_SOBRENOME_PDF}...")
-    pdf = FPDF()
-    pdf.set_auto_page_break(auto=True, margin=15)
-    
-    # --- CAPA DO RELATÓRIO ---
-    pdf.add_page()
-    pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 40, "Relatório de Otimização Multi-Objetivo", ln=True, align="C")
-    pdf.cell(0, 10, "Problema da Mochila Clássico - Análise de Pareto", ln=True, align="C")
-    
-    pdf.ln(30)
-    pdf.set_font("Helvetica", "", 12)
-    pdf.cell(0, 10, f"Estudante / Autor: Wagner Tironi Pinto", ln=True, align="L")
-    pdf.cell(0, 10, f"Disciplina: PCC175 - Técnicas de Otimização Multiobjetivo", ln=True, align="L")
-    pdf.cell(0, 10, f"Professor: Gladston Juliano Prates Moreira", ln=True, align="L")    
-    pdf.cell(0, 10, f"Total de Instâncias Avaliadas: {len(dados_instancias)} conjuntos", ln=True, align="L")
-    #pdf.cell(0, 10, f"Data do Processamento: 16/09", ln=True, align="L")
-    
-    pdf.ln(20)
-    pdf.set_font("Helvetica", "I", 10)
-    txt_desc = ("Descrição da Metodologia: Este documento apresenta os resultados gráficos obtidos através "
-                "da triagem de Pareto aplicada sobre conjuntos de dados da Mochila. O algoritmo avalia de "
-                "forma multi-critério a maximização de lucro frente à minimização de peso de cada item "
-                "disponível na instância, demarcando a fronteira de não-dominância em vermelho.")
-    pdf.multi_cell(0, 6, txt_desc)
-    
-    # --- PÁGINAS DE CONTEÚDO ---
-    # Coloca 2 instâncias por página para otimizar espaço de forma organizada
-    for idx, inst in enumerate(dados_instancias):
-        if idx % 2 == 0:
-            pdf.add_page()
+            if len(pontos_lista) < n_itens:
+               pontos_lista.append([num1, num2])
             
-        pdf.set_font("Helvetica", "B", 12)
-        pdf.cell(0, 8, f"Instância: {inst['nome']}", ln=True)
-        
-        pdf.set_font("Helvetica", "", 9)
-        meta_txt = f"Itens Disponíveis (n): {inst['n']}  |  Capacidade Total (c): {inst['c']}  |  Lucro Alcançado na Solução (z): {inst['z']}"
-        pdf.cell(0, 5, meta_txt, ln=True)
-        
-        # Insere a imagem do gráfico correspondente
-        if os.path.exists(inst['img']):
-            # Calcula o posicionamento vertical com base no índice par/ímpar da página
-            pos_y = 30 if (idx % 2 == 0) else 155
-            pdf.image(inst['img'], x=15, y=pos_y, w=180)
-            
-        pdf.ln(115) # Espaçamento para a próxima instância ou rodapé
-        
-    pdf.output(NOME_SOBRENOME_PDF)
-    print(f"Relatório PDF gerado: {os.path.abspath(NOME_SOBRENOME_PDF)}")
+            # Se atingir o tamanho exato da instância, calcula e limpa
+            if len(pontos_lista) == n_itens:               
+               pontos = np.array(pontos_lista)
+               calcula_pontos(pontos, nome_imagem, capacidade)
+               pontos_lista = []
 
+def calcula_pontos(pontos, nome_imagem, cap=0):
+   nd_pontos = no_dominated(pontos, cap)
+   print(f"Pontos Não Dominados:\n", nd_pontos)
+   gera_grafico(pontos, nd_pontos, nome_imagem, cap)
+         
 def main():
-   # Processa o arquivo
-   nome_arquivo = './instance/knapPI_16_100_1000.csv'
+   nome_imagem = None
+   pasta_script = os.path.dirname(os.path.abspath(__file__))
+   nome_arquivo = None#os.path.join(pasta_script, 'instance', 'knapPI_16_20_1000_teste.csv')
 
-   if os.path.exists(nome_arquivo):
+   if nome_arquivo is not None:
       gera_arquivo_csv(nome_arquivo)
    else:
-      print(f"Arquivo CSV de entrada não localizado em: {nome_arquivo}")
+      print(f"Nome da imagem definido como: {nome_imagem}")
+
+      #Teste da apostila
+      #pontos = np.array([[8 ,5], [9, 2], [12, 1], [11, 2], [16, 2] ])#None # leia as instâncias de teste    
+      #nome_imagem = "teste_apostila"
+
+      # Teste básico
+      #[valor, peso]
+      pontos = np.array([[5, 3], [2, 7], [3, 1] ])
+      print("\nPontos de Teste básico:\n", pontos)
+      #nome_imagem = "teste_basico"
+      cap = 10
+
+      # Teste Array 2: Maior número de pontos aleatórios em um range diferente
+      #np.random.seed(42) # Outra seed para reprodutibilidade
+      #pontos = np.random.randint(1, 100, size=(100, 2))
+      #cap = 100
+      #nome_imagem = "teste_array_2"
+      #print("\nPontos de Teste 2 (completos):\n", pontos)
+
+      # execute sua função no_dominated
+      calcula_pontos(pontos, nome_imagem, cap)
 
 if __name__ == "__main__":
    main()
